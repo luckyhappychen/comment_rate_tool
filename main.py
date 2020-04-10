@@ -1,10 +1,10 @@
-# -*- coding: utf-8 -*-
-
+#!/usr/bin/env python
+# -*- coding:utf-8 -*-
 import os
 import re
 import sys
-from PyQt5 import QtCore, QtGui, QtWidgets
-from PyQt5.QtWidgets import QApplication, QMainWindow, QMessageBox,QInputDialog,QFileDialog
+from PyQt5 import QtWidgets
+from PyQt5.QtWidgets import QApplication, QMainWindow, QMessageBox
 from art import Ui_MainWindow
 
 class MyMainForm(QMainWindow, Ui_MainWindow):
@@ -19,14 +19,32 @@ class MyMainForm(QMainWindow, Ui_MainWindow):
         self.path_btn.clicked.connect(self.openFile)
         self.start_btn.clicked.connect(self.start)
 
+        #列宽自动分配
         self.file_table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
+        #手动可调整列宽
+        self.file_table.horizontalHeader().setSectionResizeMode(2,QtWidgets.QHeaderView.Interactive)
+        self.file_table.horizontalHeader().setSectionResizeMode(3,QtWidgets.QHeaderView.Interactive)
+        self.file_table.horizontalHeader().setSectionResizeMode(4,QtWidgets.QHeaderView.Interactive)
+        self.file_table.horizontalHeader().setSectionResizeMode(5,QtWidgets.QHeaderView.Interactive)
+        #self.file_table.horizontalHeader().setSectionResizeMode(6,QtWidgets.QHeaderView.Interactive)
 
+
+        #随内容分配列宽
+        self.file_table.horizontalHeader().setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeToContents)
+        self.file_table.horizontalHeader().setSectionResizeMode(1,QtWidgets.QHeaderView.ResizeToContents)
 
     def openFile(self):
         get_directory_path = QtWidgets.QFileDialog.getExistingDirectory(self,"选取指定文件夹","")
         self.path_LineEdit.setText(str(get_directory_path))
 
-    def CalcLines(self, lineList):
+    def CalcLines(self, lineList, f_type):
+        if f_type == '.vhd':
+            result = self.CalcVHDL(lineList)
+        elif f_type in ['.c', '.cpp', '.h', '.v']:
+            result = self.CalcCV(lineList)
+        return result
+
+    def CalcVHDL(self,lineList):
         totalLines = len(lineList)
         lineNo = 0
         codeLines = 0
@@ -34,12 +52,42 @@ class MyMainForm(QMainWindow, Ui_MainWindow):
         emptyLines = 0
 
         while lineNo < totalLines:
-            if lineList[lineNo].isspace():  # 空行
+            line = lineList[lineNo].strip().decode('utf-8', 'ignore')
+            if line.isspace():  # 空行
                 emptyLines += 1
                 lineNo += 1
                 continue
 
-            regMatch = re.match('^([^/]*)/(/|\*)+(.*)$', lineList[lineNo].strip())
+            regMatch = re.match('^([^-]*)--+(.*)$', line)
+            if regMatch != None:  # 注释行
+                commentLines += 1
+
+                # 代码&注释混合行
+                if regMatch.group(1) != '':
+                    codeLines += 1
+            else:  # 代码行
+                codeLines += 1
+
+            lineNo += 1
+            continue
+
+        return [totalLines, codeLines, commentLines, emptyLines, '{:.2%}'.format(commentLines / totalLines)]
+
+    def CalcCV(self, lineList):
+        totalLines = len(lineList)
+        lineNo = 0
+        codeLines = 0
+        commentLines = 0
+        emptyLines = 0
+
+        while lineNo < totalLines:
+            line = lineList[lineNo].strip().decode('utf-8', 'ignore')
+            if line == '' or line in ['\n','\r\n']:  # 空行
+                emptyLines += 1
+                lineNo += 1
+                continue
+
+            regMatch = re.match('^([^/]*)/(/|\*)+(.*)$', line)
             if regMatch != None:  # 注释行
                 commentLines += 1
 
@@ -50,14 +98,14 @@ class MyMainForm(QMainWindow, Ui_MainWindow):
                     codeLines += 1
 
                 # 行注释或单行块注释
-                if '/*' not in lineList[lineNo] or '*/' in lineList[lineNo]:
+                if '/*' not in line or '*/' in line:
                     lineNo += 1
                     continue
 
                 # 跨行块注释
                 lineNo += 1
-                while '*/' not in lineList[lineNo]:
-                    if lineList[lineNo].isspace():
+                while lineNo < totalLines and '*/' not in line:
+                    if line.isspace():
                         emptyLines += 1
                     else:
                         commentLines += 1
@@ -70,52 +118,37 @@ class MyMainForm(QMainWindow, Ui_MainWindow):
             lineNo += 1
             continue
 
-        return [totalLines, codeLines, commentLines, emptyLines, '{:.2%}'.format(commentLines/totalLines)]
-
-    def CountFileLines(self, file_path):
-        try:
-            fileObj = open(file_path, 'r')
-        except IOError:
-            print ('Cannot open file (%s) for reading!', file_path)
-        else:
-            lineList = fileObj.readlines()
-            fileObj.close()
-
-        per_file_info = self.CalcLines(lineList)
-        for i in range(0, 4):
-            self.total_result[i] = self.total_result[i] + per_file_info[i]
-        self.total_result[3] += 1
+        return [totalLines, codeLines, commentLines, emptyLines, '{:.2%}'.format(commentLines / totalLines)]
 
     def get_result(self, file_path):
         self.result['per_file_info'] = []
         self.result['total_file_info'] = [0, 0, 0, 0, 0]
 
         if not os.path.exists(file_path):
-            print(file_path + ' is non-existent!')
-            return
+            QMessageBox.warning(self, '警告', '“' + file_path + '”' + '路径不存在！！！', )
+            return False
 
         if not os.path.isdir(file_path):
-            print(file_path + ' is not a directory!')
-            return
+            QMessageBox.warning(self, '警告', file_path + '不是路径！！！', )
+            return False
 
         select_type = self.get_selected_type()
         if len(select_type) == 0:
-            print("没有选择")
-            return
+            QMessageBox.information(self, '提示', '请选择需要统计的文件类型！！！')
+            return False
 
         for home, dirs, files in os.walk(file_path):
             for filename in files:
                 f_type = os.path.splitext(filename)[1]
                 if f_type in select_type:
                     try:
-                        fileObj = open(os.path.join(home, filename), 'r')
-                    except IOError:
-                        print('Cannot open file (%s) for reading!', os.path.join(home, filename))
-                    else:
+                        fileObj = open(os.path.join(home, filename), 'rb')
                         lineList = fileObj.readlines()
                         fileObj.close()
+                    except IOError:
+                        QMessageBox.warning(self, '警告', os.path.join(home, filename)+ '打开失败！！！')
 
-                    per_file_countInfo = self.CalcLines(lineList)
+                    per_file_countInfo = self.CalcLines(lineList,f_type)
                     per_file_countInfo.append(filename)
                     per_file_countInfo.append(home)
                     self.result['per_file_info'].append(per_file_countInfo)
@@ -123,9 +156,9 @@ class MyMainForm(QMainWindow, Ui_MainWindow):
                     for i in range(0, 4):
                         self.result['total_file_info'][i] = self.result['total_file_info'][i] + per_file_countInfo[i]
 
-                    self.result['total_file_info'][3] += 1
         if self.result['total_file_info'][0] != 0:
             self.result['total_file_info'][4] = '{:.2%}'.format(self.result['total_file_info'][2]/self.result['total_file_info'][0])
+        return True
 
     def get_selected_type(self):
         select_type = []
@@ -164,7 +197,7 @@ class MyMainForm(QMainWindow, Ui_MainWindow):
     def show_result(self):
         self.clear_data()
         if len(self.result['per_file_info']) == 0:
-            print('未找到对应类型文件')
+            QMessageBox.information(self, '提示', '该路径下没有您选择的文件类型！！！')
             return
 
         for item in self.result['per_file_info']:
@@ -195,11 +228,8 @@ class MyMainForm(QMainWindow, Ui_MainWindow):
 
     def start(self):
         file_path = self.path_LineEdit.text()
-        self.get_result(file_path)
-        self.show_result()
-
-
-
+        if self.get_result(file_path):
+            self.show_result()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
