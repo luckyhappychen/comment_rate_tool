@@ -46,6 +46,9 @@ class MyMainForm(QMainWindow, Ui_MainWindow):
 
     def CalcVHDL(self,lineList):
         totalLines = len(lineList)
+        if totalLines == 0:
+            return [0,0,0,0,0]
+
         lineNo = 0
         codeLines = 0
         commentLines = 0
@@ -75,6 +78,9 @@ class MyMainForm(QMainWindow, Ui_MainWindow):
 
     def CalcCV(self, lineList):
         totalLines = len(lineList)
+        if totalLines == 0:
+            return [0,0,0,0,0]
+
         lineNo = 0
         codeLines = 0
         commentLines = 0
@@ -104,7 +110,8 @@ class MyMainForm(QMainWindow, Ui_MainWindow):
 
                 # 跨行块注释
                 lineNo += 1
-                while lineNo < totalLines and '*/' not in line:
+                while lineNo < totalLines and '*/' not in lineList[lineNo].strip().decode('utf-8', 'ignore'):
+                    line = lineList[lineNo].strip().decode('utf-8', 'ignore')
                     if line.isspace():
                         emptyLines += 1
                     else:
